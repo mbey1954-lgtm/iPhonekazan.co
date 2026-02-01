@@ -7,7 +7,7 @@ import os
 
 # --- AYARLAR ---
 # LO, ana kontrol botunun tokenini buraya yaz
-MAIN_TOKEN = '7495038102:AAH_ÖRNEK_TOKEN_ANA_BOT' 
+MAIN_TOKEN = '8594122618:AAGqpuYEDKTITBQFp-h5dgUGW1iAVPT7tE4' 
 main_bot = telebot.TeleBot(MAIN_TOKEN)
 app = flask.Flask(__name__)
 
